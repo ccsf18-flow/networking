@@ -1,5 +1,8 @@
 #include "socket_handle.hpp"
 
+#include <fcntl.h>
+#include <cerrno>
+
 /*
  * Call this to send message.
  * parameters:
@@ -51,31 +54,25 @@ bool send_message(uint8_t tag, uint64_t ms, T gen_msg){
 }
 
 /*
- * Call this to recieve data. NOTE: it must be called before send_msg
- * and will halt execution until it completes.
- *
- * return -> msg struct with all information sent. No validation done
+ * Bind to our listen address, returning a server_socket structure
+ * connected to the DAW
  */
-msg recv_data(){
-    int server_fd, new_socket, valread;
+struct server_socket begin_recv() {
+    int server_fd, new_socket;
     struct sockaddr_in address;
     int opt = 1;
     int addr_len = sizeof(address);
-    char buffer[1024] = {0};
-    msg rec_val;
-    
-    if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0)
+
+    if ((server_fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == 0)
     {
         perror("socket failed");
         exit(EXIT_FAILURE);
     }
-    
-    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT,
-                   &opt, sizeof(opt)))
-    {
-        perror("setsockopt");
-        exit(EXIT_FAILURE);
-    }
+    // if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(opt)))
+    // {
+    //     perror("setsockopt");
+    //     exit(EXIT_FAILURE);
+    // }
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = INADDR_ANY;
     address.sin_port = htons(PORT);
@@ -87,17 +84,63 @@ msg recv_data(){
         perror("port binding failed");
         exit(EXIT_FAILURE);
     }
-    if (listen(server_fd, 3) < 0)
-    {
-        exit(EXIT_FAILURE);
+    // if (listen(server_fd, 3) < 0)
+    // {
+    //     exit(EXIT_FAILURE);
+    // }
+    // if ((new_socket = accept(server_fd, (struct sockaddr *)&address,
+    //                          (socklen_t*)&addr_len))<0)
+    // {
+    //     perror("accept failure");
+    //     exit(EXIT_FAILURE);
+    // }
+
+    // int fd_flags = fcntl(new_socket, F_GETFL);
+    // if (fd_flags < 0) {
+    //     perror("getting socket flags");
+    //     exit(EXIT_FAILURE);
+    // }
+    // fcntl(new_socket, F_SETFL, fd_flags | O_NONBLOCK);
+
+    // if (close(server_fd)) {
+    //     perror("failed to clean up server socket");
+    //     exit(EXIT_FAILURE);
+    // }
+
+    struct server_socket tr;
+    tr.sockfd = server_fd;
+
+    return tr;
+}
+
+/*
+ * Call this to recieve data. NOTE: it must be called before send_msg
+ * and will halt execution until it completes.
+ *
+ * return -> msg struct with all information sent. No validation done
+ */
+msg recv_data(server_socket * srv){
+    struct sockaddr_in si_other;
+    size_t slen = sizeof(si_other);
+
+    msg rec_val = {0};
+    int amount_read = 0;
+    printf("starting read %d\n", sizeof(uint32_t));
+    while ((amount_read = recvfrom(srv->sockfd, &rec_val, sizeof(msg), 0, (struct sockaddr *)&si_other, &slen)) < 0) {
+         if (amount_read == -1 && errno != EWOULDBLOCK && errno != EAGAIN) {
+             perror("receiving data");
+             exit(EXIT_FAILURE);
+         } 
     }
-    if ((new_socket = accept(server_fd, (struct sockaddr *)&address,
-                             (socklen_t*)&addr_len))<0)
-    {
-        perror("accept failure");
-        exit(EXIT_FAILURE);
-    }
-    read( new_socket , &rec_val, sizeof(struct msg));
+    // while ((amount_read = recvfrom( srv->sockfd , &rec_val, sizeof(uint32_t), 0)) != sizeof(uint32_t)) {
+    //     if (amount_read != -1 && amount_read != sizeof(uint32_t)) {
+    //         printf("Read %d bytes\n", amount_read);
+    //     }
+    //     if (amount_read == -1 && errno != EWOULDBLOCK && errno != EAGAIN) {
+    //         perror("receiving data");
+    //         exit(EXIT_FAILURE);
+    //     }
+    // }
     printf("recieved message\n");
     return rec_val;
 }
